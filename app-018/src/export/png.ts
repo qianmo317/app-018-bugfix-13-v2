@@ -17,15 +17,26 @@ export function drawPlanToCanvas(scene: Scene, opts: DrawOptions = {}): HTMLCanv
   const H = scene.room.h;
   const pad = 40;
   const headerH = 120;
+  const fs = px / 150; // 基准字号缩放
   const ratio = computeRatio(scene);
   const rows = tableRows(scene);
   const rowH = 44;
-  const tableH = 70 + rowH + 60;
+  // 表格设计尺寸（px，fs=1 基准；最终再整体乘 tableScale）。行数不固定，
+  // 画布高度必须按实际行数算，否则末尾行会画出画布。
+  const tblTitleH = 36; // 「布光参数表」标题行（20px 字 + 间距）
+  const tblHeadH = 34; // 表头行高
+  const tblDataH = rows.length * rowH * 0.8;
+  const tblPadBottom = 30; // 末行到底边留白
+  const colWDesign = [40, 90, 90, 80, 70, 110, 100, 100, 100, 130, 140, 80];
+  const tblDesignW = colWDesign.reduce((a, b) => a + b, 0) * fs;
+  const tblDesignH = (tblTitleH + tblHeadH + tblDataH + tblPadBottom) * fs;
+  // 整表等比缩放：宽到放不下时字号/行距一起缩，避免只缩列宽导致文字与邻列重叠
+  const tableScale = Math.min(1, (W * px) / tblDesignW);
+  const tableH = tblDesignH * tableScale;
   const canvas = document.createElement('canvas');
   canvas.width = Math.ceil(W * px) + pad * 2;
-  canvas.height = Math.ceil(headerH + H * px + pad + tableH);
+  canvas.height = Math.ceil(headerH + H * px + 56 * fs + tableH);
   const ctx = canvas.getContext('2d')!;
-  const fs = px / 150; // 基准字号缩放
 
   // 背景
   ctx.fillStyle = '#ffffff';
@@ -219,43 +230,66 @@ export function drawPlanToCanvas(scene: Scene, opts: DrawOptions = {}): HTMLCanv
     lgx += 100 * fs;
   }
 
-  // 参数表
-  let ty = lgy + 30 * fs;
+  // 参数表（行数不固定：按 rows.length 排布，整表缩放保证末行也在画布内）
+  const tableOriginY = lgy + 30 * fs;
+  ctx.save();
+  // 以表格左上角为原点做整体等比缩放：列宽、字号、行高同步缩放
+  ctx.translate(ox, tableOriginY);
+  ctx.scale(tableScale, tableScale);
+
+  let ty = 0;
   ctx.fillStyle = '#111418';
   ctx.font = `bold ${20 * fs}px system-ui, sans-serif`;
-  ctx.fillText('布光参数表', ox, ty);
-  ty += 16 * fs;
+  ctx.fillText('布光参数表', 0, ty + 20 * fs);
+  ty += tblTitleH * fs;
 
   const cols = ['#', '灯位', '类型', '功率', 'GN', '距模特(m)', '相对角度', '相机轴角', '灯高(m)', '配件', '光斑(m)', '色片'];
-  const colW = [40, 90, 90, 80, 70, 110, 100, 100, 100, 130, 140, 80].map((w) => w * fs);
-  const totalW = colW.reduce((a, b) => a + b, 0);
-  const tableScale = Math.min(1, (canvas.width - pad * 2) / totalW);
+  const colW = colWDesign.map((w) => w * fs);
+  const tableW = tblDesignW;
+  const headH = tblHeadH * fs;
+  const dataRowH = rowH * 0.8 * fs;
+
+  // 表头
   ctx.font = `bold ${14 * fs}px system-ui, sans-serif`;
   ctx.fillStyle = '#eef1f6';
-  ctx.fillRect(ox, ty, totalW * tableScale, 34 * fs);
+  ctx.fillRect(0, ty, tableW, headH);
   ctx.fillStyle = '#111418';
-  let cx2 = ox;
+  let cx2 = 0;
   cols.forEach((c, i) => {
-    ctx.fillText(c, cx2 + 6, ty + 22 * fs);
-    cx2 += colW[i] * tableScale;
+    ctx.fillText(c, cx2 + 6 * fs, ty + 22 * fs);
+    cx2 += colW[i];
   });
-  ty += 34 * fs;
+  const tableTop = ty;
+  ty += headH;
+
+  // 数据行
   ctx.font = `${14 * fs}px system-ui, sans-serif`;
   rows.forEach((row, ri) => {
     if (ri % 2 === 1) {
       ctx.fillStyle = '#f6f8fb';
-      ctx.fillRect(ox, ty, totalW * tableScale, rowH * 0.8);
+      ctx.fillRect(0, ty, tableW, dataRowH);
     }
-    ctx.fillStyle = ROLE_INFO.key.color;
-    ctx.fillRect(ox, ty + 4, 4, rowH * 0.8 - 8);
+    // 行首角色色条（与编辑器/打印视图的角色色对应）
+    ctx.fillStyle = ROLE_INFO[row.role]?.color ?? ROLE_INFO.key.color;
+    ctx.fillRect(0, ty + 4 * fs, 4 * fs, dataRowH - 8 * fs);
     ctx.fillStyle = '#1f242e';
-    let cx3 = ox;
-    cols.forEach((_, i) => {
-      ctx.fillText(String(row.cells[i] ?? ''), cx3 + 12, ty + 22 * fs);
-      cx3 += colW[i] * tableScale;
+    let cx3 = 0;
+    row.cells.forEach((cell, i) => {
+      ctx.fillText(String(cell), cx3 + 12 * fs, ty + 22 * fs);
+      cx3 += colW[i];
     });
-    ty += rowH * 0.8;
+    ty += dataRowH;
   });
+
+  // 整表外框与表头分隔线（与打印视图 1px #c9d1de 边框一致）
+  ctx.strokeStyle = '#c9d1de';
+  ctx.lineWidth = 1 / tableScale; // 缩放坐标系里保持约 1 物理像素线宽
+  ctx.strokeRect(0.5, tableTop + 0.5, tableW - 1, headH + rows.length * dataRowH - 1);
+  ctx.beginPath();
+  ctx.moveTo(0, tableTop + headH);
+  ctx.lineTo(tableW, tableTop + headH);
+  ctx.stroke();
+  ctx.restore();
 
   return canvas;
 }
@@ -274,18 +308,24 @@ export function tableRows(scene: Scene): TableRow[] {
     rows.push({
       role: lamp.role,
       cells: [
-        i,
+        i + 1,
         info.name,
-        lamp.kind === 'strobe' ? '闪光灯' : '常亮灯',
-        lamp.kind === 'strobe' ? lamp.powerStep : `${lamp.lumens ?? lamp.watts ?? 0}lm`,
+        lamp.kind === 'strobe' ? '闪光灯' : '持续灯',
+        lamp.kind === 'strobe'
+          ? lamp.powerStep
+          : lamp.lumens != null
+            ? `${lamp.lumens}lm`
+            : lamp.watts != null
+              ? `${lamp.watts}W`
+              : '—',
         lamp.kind === 'strobe' ? (lamp.gnAtFull ?? '—') : '—',
-        (d * 100).toFixed(2),
-        `${angleFromCameraAxis(scene, lamp).toFixed(0)}°`,
+        d.toFixed(2),
         `${relativeAngleToSubject(scene, lamp).toFixed(0)}°`,
-        lamp.heightMm.toFixed(2),
-        `${MODIFIER_INFO[lamp.modifier.type].name} ${lamp.modifier.h.toFixed(2)}×${lamp.modifier.w.toFixed(2)}`,
-        `${cov.spot.w.toFixed(2)}×${cov.spot.w.toFixed(2)}`,
-        lamp.gel ?? '',
+        `${angleFromCameraAxis(scene, lamp).toFixed(0)}°`,
+        (lamp.heightMm / 1000).toFixed(2),
+        `${MODIFIER_INFO[lamp.modifier.type].name} ${lamp.modifier.w.toFixed(2)}×${lamp.modifier.h.toFixed(2)}`,
+        `${cov.spot.w.toFixed(2)}×${cov.spot.h.toFixed(2)}`,
+        lamp.gel?.trim() || '—',
       ],
     });
   });
