@@ -13,6 +13,7 @@ export interface DrawOptions {
 
 export function drawPlanToCanvas(scene: Scene, opts: DrawOptions = {}): HTMLCanvasElement {
   const px = opts.pxPerM ?? 150; // 固定 DPI：150px/m ≈ 150dpi
+  const fs = px / 150; // 基准字号缩放
   const W = scene.room.w;
   const H = scene.room.h;
   const pad = 40;
@@ -20,12 +21,12 @@ export function drawPlanToCanvas(scene: Scene, opts: DrawOptions = {}): HTMLCanv
   const ratio = computeRatio(scene);
   const rows = tableRows(scene);
   const rowH = 44;
-  const tableH = 70 + rowH + 60;
+  // 表格区高度随行数增长：图例/表题/表头共 106*fs，每行 rowH*0.8，底部再留白，灯再多也整张画出
+  const tableH = 106 * fs + rows.length * (rowH * 0.8) + 24;
   const canvas = document.createElement('canvas');
   canvas.width = Math.ceil(W * px) + pad * 2;
   canvas.height = Math.ceil(headerH + H * px + pad + tableH);
   const ctx = canvas.getContext('2d')!;
-  const fs = px / 150; // 基准字号缩放
 
   // 背景
   ctx.fillStyle = '#ffffff';
@@ -274,18 +275,18 @@ export function tableRows(scene: Scene): TableRow[] {
     rows.push({
       role: lamp.role,
       cells: [
-        i,
+        i + 1,
         info.name,
-        lamp.kind === 'strobe' ? '闪光灯' : '常亮灯',
-        lamp.kind === 'strobe' ? lamp.powerStep : `${lamp.lumens ?? lamp.watts ?? 0}lm`,
+        lamp.kind === 'strobe' ? '闪光灯' : '持续灯',
+        lamp.kind === 'strobe' ? lamp.powerStep : lamp.lumens != null ? `${lamp.lumens}lm` : `${lamp.watts ?? 0}W`,
         lamp.kind === 'strobe' ? (lamp.gnAtFull ?? '—') : '—',
-        (d * 100).toFixed(2),
-        `${angleFromCameraAxis(scene, lamp).toFixed(0)}°`,
+        d.toFixed(2),
         `${relativeAngleToSubject(scene, lamp).toFixed(0)}°`,
-        lamp.heightMm.toFixed(2),
-        `${MODIFIER_INFO[lamp.modifier.type].name} ${lamp.modifier.h.toFixed(2)}×${lamp.modifier.w.toFixed(2)}`,
-        `${cov.spot.w.toFixed(2)}×${cov.spot.w.toFixed(2)}`,
-        lamp.gel ?? '',
+        `${angleFromCameraAxis(scene, lamp).toFixed(0)}°`,
+        (lamp.heightMm / 1000).toFixed(2),
+        `${MODIFIER_INFO[lamp.modifier.type].name} ${lamp.modifier.w.toFixed(2)}×${lamp.modifier.h.toFixed(2)}`,
+        `${cov.spot.w.toFixed(2)}×${cov.spot.h.toFixed(2)}`,
+        lamp.gel ?? '—',
       ],
     });
   });
